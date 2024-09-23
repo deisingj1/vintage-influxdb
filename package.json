@@ -18,6 +18,7 @@
   "dependencies": {
     "@influxdata/influxdb-client": "^1.13.0",
     "axios": "^0.21.1",
+    "lru-cache": "^11.0.1",
     "nanoid": "^3.1.23"
   }
 }
