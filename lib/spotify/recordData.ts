@@ -4,6 +4,7 @@ import path from "path";
 import writeToDb from "../influxDb/writeToDb";
 import { requestRefreshedAccessToken } from "../spotifyAuth/spotifyAuth";
 import { Measurer } from "../utils/measureDuration";
+import { LRUCache } from "lru-cache";
 
 let projectPath = "";
 if (process.env.TS_NODE_DEV == "true") {
@@ -25,10 +26,10 @@ function getCurrentlyPlaying() {
   });
 }
 
-let audioFeaturesCache: {[key: string]: TrackFeatures} = {};
-function getAudioFeatures(id: string) {
-  if (id in audioFeaturesCache) {
-    return audioFeaturesCache[id];
+const audioFeaturesCache: LRUCache<string, TrackFeatures> = new LRUCache({max: 200});
+function getAudioFeatures(id: string): Promise<TrackFeatures> {
+  if (audioFeaturesCache.has(id)) {
+    return Promise.resolve(audioFeaturesCache.get(id) as TrackFeatures);
   }
 
   console.log(`Getting audio features for track ${id}`);
@@ -39,16 +40,16 @@ function getAudioFeatures(id: string) {
       },
     })
     .then((response) => {
-      audioFeaturesCache[id] = response.data as TrackFeatures;
+      audioFeaturesCache.set(id, response.data as TrackFeatures);
 
       return response.data as TrackFeatures
     });
 }
 
-let artistInfoCache: {[key: string]: ArtistInfo} = {};
-function getArtistInfo(id: string) {
-  if (id in artistInfoCache) {
-    return artistInfoCache[id];
+const artistInfoCache: LRUCache<string, ArtistInfo> = new LRUCache({max: 100});
+function getArtistInfo(id: string): Promise<ArtistInfo> {
+  if (artistInfoCache.has(id)) {
+    return Promise.resolve(artistInfoCache.get(id) as ArtistInfo);
   }
   
   console.log(`Getting artist info for artist ${id}`);
@@ -59,16 +60,16 @@ function getArtistInfo(id: string) {
       },
     })
     .then((response) => {
-      artistInfoCache[id] = response.data as ArtistInfo;
+      artistInfoCache.set(id, response.data as ArtistInfo);
 
-      return response.data as ArtistInfo
+      return response.data as ArtistInfo;
     });
 }
 
-let albumInfoCache: {[key: string]: AlbumInfo} = {};
-function getAlbumInfo(id: string) {
-  if (id in albumInfoCache) {
-    return albumInfoCache[id];
+const albumInfoCache: LRUCache<string, AlbumInfo> = new LRUCache({max: 100});
+function getAlbumInfo(id: string): Promise<AlbumInfo> {
+  if (albumInfoCache.has(id)) {
+    return Promise.resolve(albumInfoCache.get(id) as AlbumInfo);
   }
 
   console.log(`Getting album info for album ${id}`);
@@ -79,9 +80,9 @@ function getAlbumInfo(id: string) {
       },
     })
     .then((response) => {
-      albumInfoCache[id] = response.data as AlbumInfo;
+      albumInfoCache.set(id, response.data as AlbumInfo);
 
-      return response.data as AlbumInfo
+      return response.data as AlbumInfo;
     });
 }
 
@@ -101,7 +102,7 @@ async function recordData(): Promise<void> {
         const retryAfter = Number(response.headers['retry-after']) || 60;
         console.log(`Rate limit exceeded. Waiting for ${retryAfter} seconds.`);
         await new Promise((resolve) => setTimeout(resolve, retryAfter * 1000));
-	continue; // Skip the rest of the loop and try the request again.
+	      continue; // Skip the rest of the loop and try the request again.
       }
 
       if (response.status != 204 && spotifyData?.item.id) {
