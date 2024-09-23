@@ -17,6 +17,7 @@ let currentRefreshToken = "";
 let running = false;
 
 function getCurrentlyPlaying() {
+  console.log("Getting player status");
   return axios.get("https://api.spotify.com/v1/me/player", {
     headers: {
       Authorization: `Bearer ${currentAccessToken}`,
@@ -24,34 +25,64 @@ function getCurrentlyPlaying() {
   });
 }
 
+let audioFeaturesCache: {[key: string]: TrackFeatures} = {};
 function getAudioFeatures(id: string) {
+  if (id in audioFeaturesCache) {
+    return audioFeaturesCache[id];
+  }
+
+  console.log(`Getting audio features for track ${id}`);
   return axios
     .get(`https://api.spotify.com/v1/audio-features/${id}`, {
       headers: {
         Authorization: `Bearer ${currentAccessToken}`,
       },
     })
-    .then((response) => response.data as TrackFeatures);
+    .then((response) => {
+      audioFeaturesCache[id] = response.data as TrackFeatures;
+
+      return response.data as TrackFeatures
+    });
 }
 
+let artistInfoCache: {[key: string]: ArtistInfo} = {};
 function getArtistInfo(id: string) {
+  if (id in artistInfoCache) {
+    return artistInfoCache[id];
+  }
+  
+  console.log(`Getting artist info for artist ${id}`);
   return axios
     .get(`https://api.spotify.com/v1/artists/${id}`, {
       headers: {
         Authorization: `Bearer ${currentAccessToken}`,
       },
     })
-    .then((response) => response.data as ArtistInfo);
+    .then((response) => {
+      artistInfoCache[id] = response.data as ArtistInfo;
+
+      return response.data as ArtistInfo
+    });
 }
 
+let albumInfoCache: {[key: string]: AlbumInfo} = {};
 function getAlbumInfo(id: string) {
+  if (id in albumInfoCache) {
+    return albumInfoCache[id];
+  }
+
+  console.log(`Getting album info for album ${id}`);
   return axios
     .get(`https://api.spotify.com/v1/albums/${id}`, {
       headers: {
         Authorization: `Bearer ${currentAccessToken}`,
       },
     })
-    .then((response) => response.data as AlbumInfo);
+    .then((response) => {
+      albumInfoCache[id] = response.data as AlbumInfo;
+
+      return response.data as AlbumInfo
+    });
 }
 
 const durationMeasurer = new Measurer();
@@ -65,6 +96,13 @@ async function recordData(): Promise<void> {
       const response = await getCurrentlyPlaying();
       const timestamp = new Date();
       const spotifyData = response.data as NowPlayingTrack;
+
+      if (response.status === 429) {
+        const retryAfter = Number(response.headers['retry-after']) || 60;
+        console.log(`Rate limit exceeded. Waiting for ${retryAfter} seconds.`);
+        await new Promise((resolve) => setTimeout(resolve, retryAfter * 1000));
+	continue; // Skip the rest of the loop and try the request again.
+      }
 
       if (response.status != 204 && spotifyData?.item.id) {
         appRunning = true;
