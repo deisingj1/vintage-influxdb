@@ -117,6 +117,7 @@ dist
 
 # config file
 config.json
+config-dev.json
 
 # keys file
 keys.json
