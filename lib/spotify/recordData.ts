@@ -98,9 +98,15 @@ async function recordData(): Promise<void> {
       const timestamp = new Date();
       const spotifyData = response.data as NowPlayingTrack;
 
+      if (response.status === 401 || response.status === 403) {
+        console.warn("Access token expired, attempting to fetch new access token...")
+        await getNewAccessToken(currentRefreshToken);
+        continue;
+      }
+
       if (response.status === 429) {
         const retryAfter = Number(response.headers['retry-after']) || 60;
-        console.log(`Rate limit exceeded. Waiting for ${retryAfter} seconds.`);
+        console.error(`Rate limit exceeded. Waiting for ${retryAfter} seconds.`);
         await new Promise((resolve) => setTimeout(resolve, retryAfter * 1000));
 	      continue; // Skip the rest of the loop and try the request again.
       }
@@ -133,7 +139,7 @@ async function recordData(): Promise<void> {
         // Spotify app was closed
         console.log("Spotify was closed");
         const result = durationMeasurer.quitApp(timestamp);
-        if (result.seconds != 2) {
+        if (result.seconds > 2) {
           writeToDb(
             result.track,
             result.additionalTrackInfo.trackFeatures,
@@ -150,7 +156,7 @@ async function recordData(): Promise<void> {
       running = false;
     }
 
-    await new Promise((resolve) => setTimeout(resolve, 2000));
+    await new Promise((resolve) => setTimeout(resolve, appRunning ? 2000 : 5000));
   }
 
   // when access token is invalidated
@@ -158,19 +164,23 @@ async function recordData(): Promise<void> {
   return Promise.resolve();
 }
 
+async function getNewAccessToken(refreshToken: string): Promise<void> {
+  currentRefreshToken = refreshToken;
+
+  console.log("Refreshing token...");
+  currentAccessToken = await requestRefreshedAccessToken(
+    currentRefreshToken
+  );
+  running = true;
+}
+
 function prepareToRecordData(): void {
   fs.readFile(projectPath, async (err, data) => {
     if (!err) {
       try {
         const parsedJSON = JSON.parse(data.toString());
-        currentRefreshToken = parsedJSON.refresh_token;
-
-        console.log("Refreshing token...");
-        currentAccessToken = await requestRefreshedAccessToken(
-          currentRefreshToken
-        );
-        running = true;
-        recordData();
+        await getNewAccessToken(parsedJSON.refresh_token);
+        await recordData();
       } catch (e) {
         console.error(e);
         console.error("Error refreshing token. Try deleting spotifyKeys.json");
