@@ -9,8 +9,9 @@ COPY declaration.d.ts /app/
 COPY package-lock.json /app/
 COPY yarn.lock /app/
 COPY tsconfig.json /app/
-COPY config-dev.json /app/config.json
 
+VOLUME [ "/app/config.json" ]
+VOLUME [ "/app/spotifyKeys.json" ]
 
 RUN npm update && npm install yarn
 RUN yarn install

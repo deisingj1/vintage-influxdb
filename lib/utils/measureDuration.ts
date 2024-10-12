@@ -1,7 +1,7 @@
 interface AdditionalTrackInfo {
-  trackFeatures: TrackFeatures;
-  artistInfo: ArtistInfo;
-  albumInfo: AlbumInfo;
+  trackFeatures: () => Promise<TrackFeatures>;
+  artistInfo: () => Promise<ArtistInfo>;
+  albumInfo: () => Promise<AlbumInfo>;
 }
 
 interface MeasurerResult {
@@ -28,35 +28,39 @@ class Measurer {
     additionalTrackInfo: AdditionalTrackInfo,
     currentTimestamp: Date
   ): MeasurerResult | null {
+    // If there isn't a currently playing track then
     if (!this.currentlyTrackingTrack || !this.playing) {
       this.startDate = new Date();
       this.currentlyTrackingTrack = currentlyTrackingTrack;
       this.currentlyTrackingAdditionalTrackInfo = additionalTrackInfo;
       this.playing = currentlyTrackingTrack.is_playing;
     }
+
     const trackedTrack = this.currentlyTrackingTrack;
-    const trackedTrackAdditionalInfo =
-      this.currentlyTrackingAdditionalTrackInfo;
-    if (
-      (this.currentlyTrackingTrack?.item.id != currentlyTrackingTrack.item.id &&
-        this.currentlyTrackingTrack != null) ||
-      (!currentlyTrackingTrack.is_playing && this.playing)
-    ) {
+    const trackedTrackAdditionalInfo = this.currentlyTrackingAdditionalTrackInfo;
+    const trackIdHasChanged = this.currentlyTrackingTrack?.item.id != currentlyTrackingTrack.item.id;
+    const isNotFirstTrackInSession = this.currentlyTrackingTrack != null;
+    const trackNoLongerPlaying = !currentlyTrackingTrack.is_playing && this.playing;
+    if ((trackIdHasChanged && isNotFirstTrackInSession) || (trackNoLongerPlaying)) {
       const duration = Math.round(
         (currentTimestamp.getTime() - this.startDate.getTime()) / 1000
       );
+
       this.currentlyTrackingTrack = currentlyTrackingTrack;
       this.currentlyTrackingAdditionalTrackInfo = additionalTrackInfo;
       this.startDate = new Date();
       this.playing = currentlyTrackingTrack.is_playing;
-      return {
-        seconds: duration,
-        track: trackedTrack as NowPlayingTrack,
-        additionalTrackInfo: trackedTrackAdditionalInfo as AdditionalTrackInfo,
-      };
-    } else {
-      return null;
-    }
+
+      if (duration > 5) {
+        return {
+          seconds: duration,
+          track: trackedTrack as NowPlayingTrack,
+          additionalTrackInfo: trackedTrackAdditionalInfo as AdditionalTrackInfo,
+        };
+      }
+    } 
+
+    return null;
   }
 
   quitApp(currentTimestamp: Date): MeasurerResult {

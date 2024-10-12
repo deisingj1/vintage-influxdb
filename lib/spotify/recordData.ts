@@ -18,7 +18,7 @@ let currentRefreshToken = "";
 let running = false;
 
 function getCurrentlyPlaying() {
-  console.log("Getting player status");
+  // console.debug("Getting player status");
   return axios.get("https://api.spotify.com/v1/me/player", {
     headers: {
       Authorization: `Bearer ${currentAccessToken}`,
@@ -26,64 +26,61 @@ function getCurrentlyPlaying() {
   });
 }
 
-const audioFeaturesCache: LRUCache<string, TrackFeatures> = new LRUCache({max: 200});
-function getAudioFeatures(id: string): Promise<TrackFeatures> {
-  if (audioFeaturesCache.has(id)) {
-    return Promise.resolve(audioFeaturesCache.get(id) as TrackFeatures);
+const audioFeaturesCache: LRUCache<string, TrackFeatures> = new LRUCache({max: 500});
+function getAudioFeatures(id: string): () => Promise<TrackFeatures> {
+  return async () => {
+    if (audioFeaturesCache.has(id)) {
+      return Promise.resolve(audioFeaturesCache.get(id) as TrackFeatures);
+    }
+
+    console.debug(`Getting audio features for track ${id}`);
+    const response = await axios
+      .get(`https://api.spotify.com/v1/audio-features/${id}`, {
+        headers: {
+          Authorization: `Bearer ${currentAccessToken}`,
+        },
+      });
+    audioFeaturesCache.set(id, response.data as TrackFeatures);
+    return response.data as TrackFeatures;
   }
-
-  console.log(`Getting audio features for track ${id}`);
-  return axios
-    .get(`https://api.spotify.com/v1/audio-features/${id}`, {
-      headers: {
-        Authorization: `Bearer ${currentAccessToken}`,
-      },
-    })
-    .then((response) => {
-      audioFeaturesCache.set(id, response.data as TrackFeatures);
-
-      return response.data as TrackFeatures
-    });
 }
 
-const artistInfoCache: LRUCache<string, ArtistInfo> = new LRUCache({max: 100});
-function getArtistInfo(id: string): Promise<ArtistInfo> {
-  if (artistInfoCache.has(id)) {
-    return Promise.resolve(artistInfoCache.get(id) as ArtistInfo);
-  }
+const artistInfoCache: LRUCache<string, ArtistInfo> = new LRUCache({max: 200});
+function getArtistInfo(id: string): () => Promise<ArtistInfo> {
+  return async () => {
+    if (artistInfoCache.has(id)) {
+      return Promise.resolve(artistInfoCache.get(id) as ArtistInfo);
+    }
   
-  console.log(`Getting artist info for artist ${id}`);
-  return axios
-    .get(`https://api.spotify.com/v1/artists/${id}`, {
-      headers: {
-        Authorization: `Bearer ${currentAccessToken}`,
-      },
-    })
-    .then((response) => {
-      artistInfoCache.set(id, response.data as ArtistInfo);
-
-      return response.data as ArtistInfo;
-    });
+    console.debug(`Getting artist info for artist ${id}`);
+    const response = await axios
+      .get(`https://api.spotify.com/v1/artists/${id}`, {
+        headers: {
+          Authorization: `Bearer ${currentAccessToken}`,
+        },
+      });
+    artistInfoCache.set(id, response.data as ArtistInfo);
+    return response.data as ArtistInfo;
+  }
 }
 
-const albumInfoCache: LRUCache<string, AlbumInfo> = new LRUCache({max: 100});
-function getAlbumInfo(id: string): Promise<AlbumInfo> {
-  if (albumInfoCache.has(id)) {
-    return Promise.resolve(albumInfoCache.get(id) as AlbumInfo);
+const albumInfoCache: LRUCache<string, AlbumInfo> = new LRUCache({max: 200});
+function getAlbumInfo(id: string): () => Promise<AlbumInfo> {
+  return async () => {
+    if (albumInfoCache.has(id)) {
+      return Promise.resolve(albumInfoCache.get(id) as AlbumInfo);
+    }
+
+    console.debug(`Getting album info for album ${id}`);
+    const response = await axios
+      .get(`https://api.spotify.com/v1/albums/${id}`, {
+        headers: {
+          Authorization: `Bearer ${currentAccessToken}`,
+        },
+      });
+    albumInfoCache.set(id, response.data as AlbumInfo);
+    return response.data as AlbumInfo;
   }
-
-  console.log(`Getting album info for album ${id}`);
-  return axios
-    .get(`https://api.spotify.com/v1/albums/${id}`, {
-      headers: {
-        Authorization: `Bearer ${currentAccessToken}`,
-      },
-    })
-    .then((response) => {
-      albumInfoCache.set(id, response.data as AlbumInfo);
-
-      return response.data as AlbumInfo;
-    });
 }
 
 const durationMeasurer = new Measurer();
@@ -98,8 +95,9 @@ async function recordData(): Promise<void> {
       const timestamp = new Date();
       const spotifyData = response.data as NowPlayingTrack;
 
-      if (response.status === 401 || response.status === 403) {
-        console.warn("Access token expired, attempting to fetch new access token...")
+      if (response.status >= 400) {
+        console.warn(`Access token expired (status was ${response.status}), attempting to fetch new access token...`)
+        await new Promise((resolve) => setTimeout(resolve, 10 * 1000));
         await getNewAccessToken(currentRefreshToken);
         continue;
       }
@@ -114,9 +112,9 @@ async function recordData(): Promise<void> {
       if (response.status != 204 && spotifyData?.item.id) {
         appRunning = true;
 
-        const trackFeatures = await getAudioFeatures(spotifyData.item.id);
-        const artistInfo = await getArtistInfo(spotifyData.item.artists[0].id);
-        const albumInfo = await getAlbumInfo(spotifyData.item.album.id);
+        const trackFeatures = getAudioFeatures(spotifyData.item.id);
+        const artistInfo = getArtistInfo(spotifyData.item.artists[0].id);
+        const albumInfo = getAlbumInfo(spotifyData.item.album.id);
 
         const result = durationMeasurer.checkTimer(
           spotifyData,
@@ -137,7 +135,7 @@ async function recordData(): Promise<void> {
         }
       } else if (appRunning) {
         // Spotify app was closed
-        console.log("Spotify was closed");
+        console.debug("Spotify was closed");
         const result = durationMeasurer.quitApp(timestamp);
         if (result.seconds > 2) {
           writeToDb(

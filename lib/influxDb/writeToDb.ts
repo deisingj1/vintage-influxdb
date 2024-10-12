@@ -10,20 +10,25 @@ const client = new InfluxDB({
   token: token,
 });
 
-export default function writeToDb(
+export default async function writeToDb(
   spotifyData: NowPlayingTrack,
-  trackFeatures: TrackFeatures,
-  artistInfo: ArtistInfo,
-  albumInfo: AlbumInfo,
+  trackFeaturesFn: () => Promise<TrackFeatures>,
+  artistInfoFn: () => Promise<ArtistInfo>,
+  albumInfoFn: () => Promise<AlbumInfo>,
   duration: number,
   timestamp: Date
-): void {
+): Promise<void> {
   console.log(
     `[${timestamp.toUTCString()}]`,
     `${duration} sec:`,
     `${spotifyData.item.name} -`,
     `${spotifyData.item.artists[0].name}`
   );
+
+  const trackFeatures = await trackFeaturesFn();
+  const artistInfo = await artistInfoFn();
+  const albumInfo = await albumInfoFn();
+
   const writeApi = client.getWriteApi(org, bucket);
   writeApi.useDefaultTags({ host: config.influxDbHostName });
   const point = new Point("track")
