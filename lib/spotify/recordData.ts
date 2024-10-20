@@ -86,7 +86,7 @@ function getAlbumInfo(id: string): () => Promise<AlbumInfo> {
 const durationMeasurer = new Measurer();
 
 async function recordData(): Promise<void> {
-  console.log("Starting to record data...");
+  console.log("Starting to record listening data...");
   let appRunning = false;
 
   while (running) {
@@ -150,8 +150,9 @@ async function recordData(): Promise<void> {
         appRunning = false;
       }
     } catch (e) {
-      console.error(e);
       running = false;
+      console.error("Something bad happened while monitoring listening");
+      throw e;
     }
 
     await new Promise((resolve) => setTimeout(resolve, appRunning ? 2000 : 5000));
@@ -180,11 +181,12 @@ function prepareToRecordData(): void {
         await getNewAccessToken(parsedJSON.refresh_token);
         await recordData();
       } catch (e) {
-        console.error(e);
         console.error("Error refreshing token. Try deleting spotifyKeys.json");
+        throw err;
       }
     } else {
-      console.error(err);
+      console.error("Issue reading config files");
+      throw err;
     }
   });
 }
