@@ -15,7 +15,6 @@ if (process.env.TS_NODE_DEV == "true") {
 
 let currentAccessToken = "";
 let currentRefreshToken = "";
-let running = false;
 
 function getCurrentlyPlaying() {
   // console.debug("Getting player status");
@@ -45,7 +44,7 @@ function getAudioFeatures(id: string): () => Promise<TrackFeatures> {
   }
 }
 
-const artistInfoCache: LRUCache<string, ArtistInfo> = new LRUCache({max: 200});
+const artistInfoCache: LRUCache<string, ArtistInfo> = new LRUCache({max: 100});
 function getArtistInfo(id: string): () => Promise<ArtistInfo> {
   return async () => {
     if (artistInfoCache.has(id)) {
@@ -64,7 +63,7 @@ function getArtistInfo(id: string): () => Promise<ArtistInfo> {
   }
 }
 
-const albumInfoCache: LRUCache<string, AlbumInfo> = new LRUCache({max: 200});
+const albumInfoCache: LRUCache<string, AlbumInfo> = new LRUCache({max: 100});
 function getAlbumInfo(id: string): () => Promise<AlbumInfo> {
   return async () => {
     if (albumInfoCache.has(id)) {
@@ -86,10 +85,10 @@ function getAlbumInfo(id: string): () => Promise<AlbumInfo> {
 const durationMeasurer = new Measurer();
 
 async function recordData(): Promise<void> {
-  console.log("Starting to record listening data...");
+  console.log("1: Starting to record listening data...");
   let appRunning = false;
 
-  while (running) {
+  while (true) {
     try {
       const response = await getCurrentlyPlaying();
       const timestamp = new Date();
@@ -98,7 +97,8 @@ async function recordData(): Promise<void> {
       if (response.status >= 400) {
         console.warn(`Access token expired (status was ${response.status}), attempting to fetch new access token...`)
         await new Promise((resolve) => setTimeout(resolve, 10 * 1000));
-        await getNewAccessToken(currentRefreshToken);
+        await getNewAccessToken(currentRefreshToken)
+          .then((token) => currentAccessToken = token);
         continue;
       }
 
@@ -150,27 +150,23 @@ async function recordData(): Promise<void> {
         appRunning = false;
       }
     } catch (e) {
-      running = false;
-      console.error("Something bad happened while monitoring listening");
-      throw e;
+      console.error("".concat((new Date()).toISOString(),  ": ", "Something bad happened while monitoring listening"));
+      console.error(e);
     }
 
     await new Promise((resolve) => setTimeout(resolve, appRunning ? 2000 : 5000));
   }
-
-  // when access token is invalidated
-  prepareToRecordData();
-  return Promise.resolve();
 }
 
-async function getNewAccessToken(refreshToken: string): Promise<void> {
+async function getNewAccessToken(refreshToken: string): Promise<string> {
   currentRefreshToken = refreshToken;
 
   console.log("Refreshing token...");
-  currentAccessToken = await requestRefreshedAccessToken(
-    currentRefreshToken
-  );
-  running = true;
+  return requestRefreshedAccessToken(currentRefreshToken)
+    .then (
+      (token) => token, 
+      (err) => Promise.reject(err)
+    );
 }
 
 function prepareToRecordData(): void {
@@ -178,7 +174,8 @@ function prepareToRecordData(): void {
     if (!err) {
       try {
         const parsedJSON = JSON.parse(data.toString());
-        await getNewAccessToken(parsedJSON.refresh_token);
+        await getNewAccessToken(parsedJSON.refresh_token)
+          .then((token) => currentAccessToken = token);
         await recordData();
       } catch (e) {
         console.error("Error refreshing token. Try deleting spotifyKeys.json");
